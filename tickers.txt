@@ -1,0 +1,4 @@
+# Kendi eklemek istediğin hisse/ETF'ler (satır başına bir tane, # ile yorum)
+SPY
+QQQ
+VTI
