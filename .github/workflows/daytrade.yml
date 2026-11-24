@@ -1,0 +1,58 @@
+name: Day Trade Taraması
+
+on:
+  schedule:
+    - cron: "*/5 13-20 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daytrade
+  cancel-in-progress: false
+
+jobs:
+  daytrade:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Piyasa saati kontrolü (New York)
+        id: gate
+        run: |
+          H=$((10#$(TZ=America/New_York date +%H%M)))
+          D=$(TZ=America/New_York date +%u)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; echo "manual=true" >> "$GITHUB_OUTPUT"
+          elif [ "$D" -le 5 ] && [ "$H" -ge 950 ] && [ "$H" -le 1530 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; echo "manual=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.run == 'true'
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+        if: steps.gate.outputs.run == 'true'
+      - name: Day trade tara ve bildir
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ "${{ steps.gate.outputs.manual }}" = "true" ]; then
+            python daytrade.py --replay --asof 10:30
+          else
+            python daytrade.py
+          fi
+      - name: State dosyasını kaydet
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          git config user.name "scanner-bot"
+          git config user.email "scanner-bot@users.noreply.github.com"
+          git add daytrade_state.json || true
+          git diff --staged --quiet || (git commit -m "daytrade state" && git pull --rebase -q && git push)
